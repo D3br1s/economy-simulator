@@ -1,0 +1,22 @@
+{
+    "population": {
+        "total": 1000,
+        "unemployed": 0,
+        "income": 5300
+    },
+    "buildings": {
+        "farm": {
+            "count": 14,
+            "employees": 700
+        },
+        "iron_mine": {
+            "count": 2,
+            "employees": 100
+        },
+        "logging_camp": {
+            "count": 4,
+            "employees": 200
+        }
+    },
+    "investment_pool": 121796.66062363193
+}

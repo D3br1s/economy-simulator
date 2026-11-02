@@ -1,0 +1,8 @@
+{
+	"workers": {
+		"consumption": {
+			"grain": 0.8,
+			"wood": 0.2
+		}
+	}
+}

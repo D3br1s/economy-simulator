@@ -1,0 +1,296 @@
+
+===== ./main.py =====
+import json
+
+from engine.market import Market
+from engine.economy import Economy
+
+def load_json(filename):
+    with open(filename, "r") as file:
+        return json.load(file)
+
+goods_info = load_json("data/goods.json")
+buildings_info = load_json("data/buildings.json")
+pops_info = load_json("data/pops.json")
+save_data = load_json("saves/save.json")
+
+market = Market(goods_info)
+
+economy = Economy(
+    market,
+    save_data["investment_pool"],
+    buildings_info,
+    save_data,
+    pops_info
+)
+
+def show_status():
+    population = save_data["population"]
+
+    print("\n ===== ECONOMY STATUS =====")
+    print(f"Population: {population['total']}")
+    print(f"Unemployed: {population['unemployed']}")
+    print(f"Investment pool: {economy.investment_pool:.2f}")
+
+    print("\n----- Buildings -----")
+    for building_type, building in save_data['buildings'].items():
+        print(
+                f"{building_type}: {building['count']} buildings, "
+                f"{building['employees']} employees" 
+        )
+
+    print("\n ----- Market -----")
+    for good in goods_info:
+        print(
+                f"{good}: Price {market.prices[good]:.2f}, "
+                f"Supply {market.supply[good]:.2f}, "
+                f"Demand {market.demand[good]:.2f}"
+        )
+
+def save_game():
+    save_data['investment_pool'] = economy.investment_pool
+
+    with open("saves/save.json", "w") as file:
+        json.dump(save_data, file, indent=4)
+
+# main game loop by month
+while (True):
+    command = input("\n> ").strip().lower().split()
+    
+    if not command:
+        continue
+    
+    if command[0] == "end":
+        economy.advance_month()
+        show_status()
+    
+    elif command[0] == "status":
+        show_status()
+
+    elif command[0] == "save":
+        save_game()
+        print("Game saved.")
+
+    elif command[0] == "quit":
+        save_game()
+        print("Game saved. Goodbye!")
+        break
+    
+    else:
+        print("Unknown command.")
+
+===== ./engine/economy.py =====
+class Economy:
+    def __init__(self, market, investment_pool, buildings_info, save_data, pops_info):
+        self.market = market
+        self.investment_pool = investment_pool
+        self.buildings_info = buildings_info
+        self.save_data = save_data
+        self.pops_info = pops_info
+
+    #calculate the profit
+    def calculate_profit(self, building_type, employment_ratio=1):
+        info = self.buildings_info[building_type]
+
+        revenue = 0
+        for good, amount in info["outputs"].items():
+            revenue += amount * self.market.prices[good]
+
+        costs = 0
+        for good, amount in info["inputs"].items():
+            costs += amount * self.market.prices[good]
+
+        wages = info["workers"] * info["wage"]
+
+        return (revenue - costs - wages) * employment_ratio
+
+    def calculate_total_profit(self):
+        total_profit = 0
+
+        for building_type, building in self.save_data["buildings"].items():
+            info = self.buildings_info[building_type]
+
+            required_workers = building["count"] * info["workers"]
+
+            if required_workers == 0:
+                continue
+
+            employment_ratio = building["employees"] / required_workers
+
+            profit = self.calculate_profit(building_type, employment_ratio)
+
+            total_profit += profit * building["count"]
+
+        return total_profit
+
+    def calculate_investment(self):
+        buildings = self.save_data["buildings"]
+        unemployed = self.save_data["population"]["unemployed"]
+
+        while self.investment_pool >= 100:
+
+            best_building = None
+            best_profit = 0
+
+            for building_type, info in self.buildings_info.items():
+
+                required_workers = info["workers"]
+
+                if required_workers > unemployed:
+                    continue
+                
+                profit = self.calculate_profit(building_type)
+
+                if profit > best_profit:
+                    best_profit = profit
+                    best_building = building_type
+
+            if best_building is None:
+                break
+
+            if best_building not in buildings:
+                buildings[best_building] = {
+                    "count": 0,
+                    "employees": 0
+                }
+
+            buildings[best_building]["count"] += 1
+
+            self.investment_pool -= 100
+
+            unemployed -= self.buildings_info[best_building]["workers"]
+
+        self.save_data["investment_pool"] = self.investment_pool
+        
+    def assign_workers(self): 
+        population = self.save_data["population"]
+        buildings = self.save_data["buildings"]
+
+        remaining_workers = population["total"]
+
+        for building in buildings.values():
+            building["employees"] = 0
+
+        sorted_buildings = sorted(
+            buildings.items(),
+            key=lambda item: self.buildings_info[item[0]]["wage"], 
+            reverse=True
+        )
+
+        for building_type, building in sorted_buildings:
+
+            info = self.buildings_info[building_type]
+
+            available_jobs = building["count"] * info["workers"]
+
+            assigned = min(remaining_workers, available_jobs)
+
+            building["employees"] = assigned
+            remaining_workers -= assigned
+
+        population["unemployed"] = remaining_workers
+        
+    def calculate_wages(self):
+        total_wages = 0
+
+        for building_type, building in self.save_data["buildings"].items():
+
+            wage = self.buildings_info[building_type]["wage"]
+
+            total_wages += building["employees"] * wage
+
+        self.save_data["population"]["income"] = total_wages
+
+        return total_wages
+
+    def calculate_production(self):
+        buildings = self.save_data["buildings"]
+
+        for building_type, building in buildings.items():
+            info = self.buildings_info[building_type]
+
+            required_workers = building["count"] * info["workers"]
+
+            if required_workers == 0:
+                continue
+
+            employment_ratio = building["employees"] / required_workers
+
+            for good, amount in info["outputs"].items():
+                production = amount * building["count"] * employment_ratio
+                self.market.add_supply(good, production)
+
+            for good, amount in info["inputs"].items():
+                consumption = amount * building["count"] * employment_ratio
+                self.market.add_demand(good, consumption)
+
+    def calculate_consumption(self):
+        income = self.calculate_wages()
+
+        for good, ratio in self.pops_info["workers"].items():
+            spending = income * ratio
+            quantity = spending / self.market.prices[good]
+
+            self.market.add_demand(good, quantity)
+    
+    def advance_month(self):
+        self.market.reset_market()
+
+        self.assign_workers()
+
+        self.calculate_investment()
+
+        self.assign_workers()
+
+        self.calculate_production()
+
+        self.calculate_consumption()
+
+        self.market.update_prices()
+
+        profit = self.calculate_total_profit()
+        self.investment_pool += profit
+
+        self.save_data["investment_pool"] = self.investment_pool
+
+        print(f"Monthly profit: {profit:.2f}")
+        print(f"Investment pool: {self.investment_pool:.2f}")
+
+===== ./engine/market.py =====
+class Market:
+    def __init__(self, goods): 
+        self.goods = goods
+        self.supply = {}
+        self.demand = {}
+        self.prices = {}
+
+        for good, data in goods.items():
+            self.supply[good] = 0
+            self.demand[good] = 0
+            self.prices[good] = data["base_price"]
+
+    def add_supply(self, good, amount):
+        self.supply[good] += amount
+
+    def add_demand(self, good, amount):
+        self.demand[good] += amount
+
+    def reset_market(self):
+        for good in self.goods:
+            self.supply[good] = 0
+            self.demand[good] = 0
+
+    def update_prices(self):
+        for good in self.goods:
+            supply = self.supply[good]
+            demand = self.demand[good]
+            base_price = self.goods[good]["base_price"]
+
+            self.prices[good] = base_price * (
+                    1 + (demand - supply) / (demand + supply + 1)
+            )
+
+
+===== ./engine/assignWorkers.py =====
+
+===== ./engine/__init__.py =====

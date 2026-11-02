@@ -1,0 +1,37 @@
+{
+	"factory": {
+		"inputs": {
+			"iron": 20,
+			"wood": 50
+		},
+		"outputs": {
+			"tools": 20
+		},
+		"workers": 25,
+		"wage": 10
+	},
+	"farm": {
+		"inputs": {},
+		"outputs": {
+			"grain": 100
+		},
+		"workers": 50,
+		"wage": 5
+	},
+	"iron_mine": {
+		"inputs": {},
+		"outputs": {
+			"iron": 50
+		},
+		"workers": 50,
+		"wage": 8
+	},
+	"logging_camp": {
+		"inputs": {},
+		"outputs": {
+			"wood": 80
+		},
+		"workers": 50,
+		"wage": 5
+	}
+}
